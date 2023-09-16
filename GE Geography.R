@@ -1,16 +1,330 @@
 
 #### Setup #### 
 library(dplyr)
+library(scales)
 library(ggplot2)
+library(stringr)
 library(zipcodeR)
 library(geosphere)
+library(tidyverse)
 library(data.table)
+#### End #### 
+
+############## Getting data on online enrollment from IPEDS ###############
+
+#### Loading HD data and creating OPEID6 variable ####
+hd <- fread("hd2019.csv", header=TRUE, select=c(
+  "UNITID", 
+  "OPEID"
+)) %>% filter(`OPEID` != "-2")
+
+hd$OPEID <- as.character(hd$OPEID)
+hd$OPEID <- ifelse(nchar(hd$OPEID)==1, paste("0", hd$OPEID, sep=""), hd$OPEID)
+hd$OPEID <- ifelse(nchar(hd$OPEID)==2, paste("0", hd$OPEID, sep=""), hd$OPEID)
+hd$OPEID <- ifelse(nchar(hd$OPEID)==3, paste("0", hd$OPEID, sep=""), hd$OPEID)
+hd$OPEID <- ifelse(nchar(hd$OPEID)==4, paste("0", hd$OPEID, sep=""), hd$OPEID)
+hd$OPEID <- ifelse(nchar(hd$OPEID)==5, paste("0", hd$OPEID, sep=""), hd$OPEID)
+hd$OPEID <- ifelse(nchar(hd$OPEID)==6, paste("0", hd$OPEID, sep=""), hd$OPEID)
+hd$OPEID <- ifelse(nchar(hd$OPEID)==7, paste("0", hd$OPEID, sep=""), hd$OPEID)
+hd$OPEID6 <- as.numeric(substr(hd$OPEID, 1, 6))
+hd <- hd %>% select(`UNITID`, `OPEID6`)
+#### End ####  
+
+#### Loading distance education data and merging OPEID6 variable ####
+cdep <- fread("c2019dep_rv.csv", header=TRUE)
+cdep <- right_join(x=hd, y=cdep, by="UNITID")
+#### End #### 
+
+#### Organizing by 4-digit CIP code #### 
+cdep <- cdep %>% filter(substr(`CIPCODE`, 3, 7) != "     ") # Remove 2-digit CIP entries
+cdep <- cdep %>% mutate(`CIP4` = as.numeric(paste(substr(`CIPCODE`, 1, 2), substr(`CIPCODE`, 4, 5), sep="")))
+#### End #### 
+
+#### Organizing by credential level ####
+cdep <- cdep %>% select(-(`PTOTAL`)) %>% select(-(`PTOTALDE`)) %>% select(-(`CIPCODE`)) %>% select(-(`UNITID`))
+cdep <- cdep %>% pivot_longer(cols=c(`PASSOC`, `PASSOCDE`, 
+                                     `PBACHL`, `PBACHLDE`, 
+                                     `PMASTR`, `PMASTRDE`, 
+                                     `PDOCRS`, `PDOCRSDE`, 
+                                     `PDOCPP`, `PDOCPPDE`, 
+                                     `PDOCOT`, `PDOCOTDE`, 
+                                     `PCERT1`, `PCERT1DE`, 
+                                     `PCERT2`, `PCERT2DE`, 
+                                     `PCERT4`, `PCERT4DE`, 
+                                     `PPBACC`, `PPBACCDE`, 
+                                     `PPMAST`, `PPMASTDE`), names_to='Variable', values_to='Programs')
+joiner1 <- data.frame("Variable"=c(
+  "PASSOC", 
+  "PASSOCDE", 
+  "PBACHL", 
+  "PBACHLDE", 
+  "PMASTR", 
+  "PMASTRDE", 
+  "PDOCRS", 
+  "PDOCRSDE", 
+  "PDOCPP", 
+  "PDOCPPDE", 
+  "PDOCOT", 
+  "PDOCOTDE", 
+  "PCERT1", 
+  "PCERT1DE", 
+  "PCERT2", 
+  "PCERT2DE", 
+  "PCERT4", 
+  "PCERT4DE", 
+  "PPBACC", 
+  "PPBACCDE", 
+  "PPMAST", 
+  "PPMASTDE"
+), "cred_lvl"=c(
+  "Associate's", 
+  "Associate's", 
+  "Bachelor's", 
+  "Bachelor's", 
+  "Master's", 
+  "Master's", 
+  "Doctoral", 
+  "Doctoral", 
+  "Professional", 
+  "Professional", 
+  "Professional", 
+  "Professional", 
+  "UG Certificates", 
+  "UG Certificates", 
+  "UG Certificates", 
+  "UG Certificates", 
+  "UG Certificates", 
+  "UG Certificates", 
+  "Post-BA Certs", 
+  "Post-BA Certs", 
+  "Grad Certs", 
+  "Grad Certs"
+))
+
+joiner2 <- data.frame("Variable"=c(
+  "PASSOC", 
+  "PASSOCDE", 
+  "PBACHL", 
+  "PBACHLDE", 
+  "PMASTR", 
+  "PMASTRDE", 
+  "PDOCRS", 
+  "PDOCRSDE", 
+  "PDOCPP", 
+  "PDOCPPDE", 
+  "PDOCOT", 
+  "PDOCOTDE", 
+  "PCERT1", 
+  "PCERT1DE", 
+  "PCERT2", 
+  "PCERT2DE", 
+  "PCERT4", 
+  "PCERT4DE", 
+  "PPBACC", 
+  "PPBACCDE", 
+  "PPMAST", 
+  "PPMASTDE"
+), "distance"=rep(c("Total", "Distance"), 11))
+cdep <- left_join(x=cdep, y=joiner1, by="Variable")
+cdep <- left_join(x=cdep, y=joiner2, by="Variable")
+#### End #### 
+
+#### Aggregating by unique identifiers #### 
+online.programs <- aggregate(data=cdep, `Programs` ~ `OPEID6` + `CIP4` + `cred_lvl` + `distance`, FUN=sum)
+online.programs <- online.programs %>% pivot_wider(names_from=`distance`, values_from=`Programs`)
+online.programs <- online.programs %>% filter(`Total` > 0)
+online.programs <- online.programs %>% mutate(`Distance share` = `Distance` / `Total`)
+online.programs <- online.programs %>% mutate(`Distance status` = ifelse(`Distance share` >= 0.5, 1, 0)) 
+#### End #### 
+
+#### Preparing to join with GE data ####
+online.programs <- online.programs %>% select(`OPEID6`, `CIP4`, `cred_lvl`, `Distance status`)
+online.programs <- online.programs %>% rename(`opeid6` = `OPEID6`, 
+                                              `cip4` = `CIP4`)
+#### End #### 
+
+#### Determining when online programs have another online option ####
+online.programs$`Online alternative` <- rep(NA, nrow(online.programs)) 
+
+for(i in (1:nrow(online.programs))){
+  
+  if(online.programs$`Distance status`[i]==1){
+    online.alternatives <- online.programs %>% filter(`Distance status`==1) %>% filter(`opeid6` != online.programs$`opeid6`[i])
+    online.alternatives <- online.alternatives %>% filter(`cip4` == online.programs$`cip4`[i])
+    online.alternatives <- online.alternatives %>% filter(`cred_lvl` == online.programs$`cred_lvl`[i])
+    
+    if(nrow(online.alternatives) > 0){
+      online.programs$`Online alternative`[i] <- "Online with an online alternative"
+    }else{
+      online.programs$`Online alternative`[i] <- "Online without an online alternative"
+    }
+    rm("online.alternatives")
+  }
+}
+
+#### End #### 
+
+############## Improvements to earnings from GE ###############
+
+#### Load GE data ####
+ge <- read.csv("nprm-2022ppd-public-suppressed.csv", header=TRUE)
+ge <- ge %>% filter((`control_peps` %in% c("Foreign For-Profit", "Foreign Private"))==FALSE)
+ge <- ge %>% select(
+  `schname`, 
+  `inGE`, 
+  `opeid6`, 
+  `cip4`,
+  `cred_lvl`, 
+  `control_peps`, 
+  `st_fips`, 
+  `earn_count_ne_3yr`, 
+  `mdearnp3`, 
+  `debtservicenpp_md`,
+  `meandebt`,
+  `mdincearn_lf`, 
+  `EP_lf_2019`,
+  `passfail_2019`, 
+  `count_AY1617`
+)
+#### End #### 
+
+#### Merge in info for simulation #### 
+ge.fail.A_record <- read.csv("ge.fail.A_record.csv", header=TRUE)
+
+# Remove programs where there was no alternative 
+ge.fail.A_record <- ge.fail.A_record %>% filter(is.na(`alt_opeid6`)==FALSE)
+
+# Create a unique identifier for each program: 
+ge.fail.A_record <- ge.fail.A_record %>% mutate(`Prog_ID` = paste(`alt_opeid6`, `alt_cip4`, `alt_cred_lvl`, sep="-"))
+
+# Keep in only the essentials 
+ge.transfers <- ge.fail.A_record %>% select(`Prog_ID`, `count_AY1617`)
+ge.transfers <- ge.transfers %>% rename(`TransferStudents` = `count_AY1617`)
+ge.transfers <- aggregate(data=ge.transfers, `TransferStudents` ~ `Prog_ID`, FUN=sum)
+
+#### End #### 
+
+#### Filter for programs with sufficient data for evaluation ####
+ge <- ge %>% filter(`passfail_2019` != "No DTE/EP data")
+#### End #### 
+
+#### Run function for states #### 
+
+states <- unique(ge$st_fips)[1:51]
+
+for(i in (1:length(states))){
+  if(i==1){
+    statesData <- data.frame(
+      `State` = states,
+      `X1` = rep(NA, length(states)), 
+      `X2` = rep(NA, length(states)), 
+      `X3` = rep(NA, length(states)), 
+      `X4` = rep(NA, length(states))
+    )
+    names(statesData) <- c("State", 
+                           "Average earnings in state (all programs)", 
+                           "Average earnings in state (passing programs)", 
+                           "Average annual debt servicing in state (all programs)", 
+                           "Average annual debt servicing in state (passing programs)")
+  }
+  
+  ge.all <- ge %>% filter(`st_fips`==states[i])
+  ge.passing <- ge.all %>% filter(`passfail_2019`=="Pass")
+  
+  # Here, we load in the data on transfers: 
+  ge.passing <- ge.passing %>% mutate(`Prog_ID` = paste(`opeid6`, `cip4`, `cred_lvl`, sep="-"))
+  ge.passing <- left_join(x=ge.passing, y=ge.transfers, by="Prog_ID")
+  ge.passing$`TransferStudents`[is.na(ge.passing$`TransferStudents`)] <- 0
+  ge.passing <- ge.passing %>% mutate(`count_AY1617` = `count_AY1617` + `TransferStudents`)
+  
+  statesData$`Average earnings in state (all programs)`[i] <- weighted.mean(ge.all$`mdearnp3`, w = ge.all$`earn_count_ne_3yr`)
+  statesData$`Average earnings in state (passing programs)`[i] <- weighted.mean(ge.passing$`mdearnp3`, w = ge.passing$`earn_count_ne_3yr`)
+  
+  # At this stage, we filter out programs without debt data. 
+  ge.all <- ge.all %>% filter(is.na(`debtservicenpp_md`)==FALSE)
+  ge.passing <- ge.passing %>% filter(is.na(`debtservicenpp_md`)==FALSE)
+  
+  statesData$`Average annual debt servicing in state (all programs)`[i] <- weighted.mean(ge.all$`debtservicenpp_md`, w = ge.all$`earn_count_ne_3yr`)
+  statesData$`Average annual debt servicing in state (passing programs)`[i] <- weighted.mean(ge.passing$`debtservicenpp_md`, w = ge.passing$`earn_count_ne_3yr`)
+}
+
+# Adding in the nationwide numbers
+ge.all <- ge
+ge.passing <- ge.all %>% filter(`passfail_2019`=="Pass")
+ge.passing <- ge.passing %>% mutate(`Prog_ID` = paste(`opeid6`, `cip4`, `cred_lvl`, sep="-"))
+ge.passing <- left_join(x=ge.passing, y=ge.transfers, by="Prog_ID")
+ge.passing <- ge.passing %>% mutate(`count_AY1617` = `count_AY1617` + `TransferStudents`)
+statesData <- statesData %>% add_row(
+  `State` = "U.S. Overall", 
+  `Average earnings in state (all programs)` = weighted.mean(ge.all$`mdearnp3`, w = ge.all$`earn_count_ne_3yr`, na.rm=TRUE),
+  `Average earnings in state (passing programs)` = weighted.mean(ge.passing$`mdearnp3`, w = ge.passing$`earn_count_ne_3yr`, na.rm=TRUE), 
+  `Average annual debt servicing in state (all programs)` = weighted.mean(ge.all$`debtservicenpp_md`, w = ge.all$`earn_count_ne_3yr`, na.rm=TRUE), 
+  `Average annual debt servicing in state (passing programs)` = weighted.mean(ge.passing$`debtservicenpp_md`, w = ge.passing$`earn_count_ne_3yr`, na.rm=TRUE)
+)
+
+# Calculating annual D/E rate 
+statesData <- statesData %>% mutate(`Aggregate annual D/E rate (all programs)` = `Average annual debt servicing in state (all programs)` / `Average earnings in state (all programs)`)
+statesData <- statesData %>% mutate(`Aggregate annual D/E rate (passing programs)` = `Average annual debt servicing in state (passing programs)` / `Average earnings in state (passing programs)`)
+
+statesData <- statesData %>% mutate(`Aggregate discretionary D/E rate (all programs)` = `Average annual debt servicing in state (all programs)` / (`Average earnings in state (all programs)` - 18735))
+statesData <- statesData %>% mutate(`Aggregate discretionary D/E rate (passing programs)` = `Average annual debt servicing in state (passing programs)` / (`Average earnings in state (passing programs)` - 18735))
+
+#### End #### 
+
+#### Make change calculations #### 
+
+# Percentage changes
+statesData <- statesData %>% mutate(`Percentage change in average earnings` = (`Average earnings in state (passing programs)` - `Average earnings in state (all programs)`) / `Average earnings in state (all programs)`)
+statesData <- statesData %>% mutate(`Percentage change in annual D/E rate` = (`Aggregate annual D/E rate (passing programs)` - `Aggregate annual D/E rate (all programs)`) / `Aggregate annual D/E rate (all programs)`)
+statesData <- statesData %>% mutate(`Percentage change in discretionary D/E rate` = (`Aggregate discretionary D/E rate (passing programs)` - `Aggregate discretionary D/E rate (all programs)`) / `Aggregate discretionary D/E rate (all programs)`)
+
+# Absolute changes 
+statesData <- statesData %>% mutate(`Absolute change in average earnings` = `Average earnings in state (passing programs)` - `Average earnings in state (all programs)`)
+statesData <- statesData %>% mutate(`Absolute change in annual D/E rate` = `Aggregate annual D/E rate (passing programs)` - `Aggregate annual D/E rate (all programs)`)
+statesData <- statesData %>% mutate(`Absolute change in discretionary D/E rate` = `Aggregate discretionary D/E rate (passing programs)` - `Aggregate discretionary D/E rate (all programs)`)
+
+#### End #### 
+
+#### Make aesthetic changes (commented out for now) ####
+
+# statesData$`Absolute change in average earnings` <- dollar(statesData$`Absolute change in average earnings`, accuracy=10)
+# statesData$`Absolute change in annual D/E rate` <- round(statesData$`Absolute change in annual D/E rate`, digits=3)
+# statesData$`Absolute change in discretionary D/E rate` <- round(statesData$`Absolute change in discretionary D/E rate`, digits=3)
+# 
+# statesData$`Percentage change in average earnings` <- percent(statesData$`Percentage change in average earnings`, accuracy=0.01)
+# statesData$`Percentage change in annual D/E rate` <- percent(statesData$`Percentage change in annual D/E rate`, accuracy=0.01)
+# statesData$`Percentage change in discretionary D/E rate` <- percent(statesData$`Percentage change in discretionary D/E rate`, accuracy=0.01)
+
+#### End #### 
+
+#### Earnings gain chart ####
+
+plot1 <- statesData %>% select(`State`, `Average earnings in state (all programs)`, `Average earnings in state (passing programs)`)
+
+plot1 <- plot1 %>% pivot_longer(cols=c(`Average earnings in state (all programs)`, `Average earnings in state (passing programs)`), names_to="Program category", values_to="Average earnings in state")
+plot1$`Program category`[plot1$`Program category`=="Average earnings in state (all programs)"] <- "Pre-GE status quo"
+plot1$`Program category`[plot1$`Program category`=="Average earnings in state (passing programs)"] <- "Post-GE simulation"
+
+ggplot(data=plot1, mapping=aes(y=reorder(`State`, `Average earnings in state`, max), x=`Average earnings in state`, color=`Program category`, group=`State`)) + geom_point(aes(size=`Program category`)) + geom_line() + scale_x_continuous(labels=scales::dollar_format(accuracy=1)) + labs(y="State", x="Annual earnings among program graduates") + scale_color_manual(values=c("firebrick3", "gray23"), name="") + scale_size_manual(values=c(2.5, 1), name="")
+
+#### End #### 
+
+#### D/E Annual Ratio Chart ####
+
+plot2 <- statesData %>% select(`State`, `Aggregate discretionary D/E rate (all programs)`, `Aggregate discretionary D/E rate (passing programs)`)
+
+plot2 <- plot2 %>% pivot_longer(cols=c(`Aggregate discretionary D/E rate (all programs)`, `Aggregate discretionary D/E rate (passing programs)`), names_to="Program category", values_to="Aggregate discretionary D/E rate")
+plot2$`Program category`[plot2$`Program category`=="Aggregate discretionary D/E rate (all programs)"] <- "Pre-GE status quo"
+plot2$`Program category`[plot2$`Program category`=="Aggregate discretionary D/E rate (passing programs)"] <- "Post-GE simulation"
+
+ggplot(data=plot2, mapping=aes(y=reorder(`State`, `Aggregate discretionary D/E rate`, min), x=`Aggregate discretionary D/E rate`, color=`Program category`, group=`State`)) + geom_point(aes(size=`Program category`)) + geom_line() + scale_x_continuous(labels=scales::percent_format(accuracy=1)) + labs(y="State", x="Discretionary D/E rate among program graduates") + scale_color_manual(values=c("dodgerblue", "gray23"), name="") + scale_size_manual(values=c(2.5, 1), name="")
+
 #### End #### 
 
 ############## GE Programs in Low-Wage Areas ###############
 
 #### Loading Census Bureau data on income by ZIP code #### 
-# Source: https://data.census.gov/table?q=income&g=010XX00US$8600000&tid=ACSST5Y2021.S1901
+# Source: https://data.census.gov/table?q=income&g=010XX00US$8600000&tid=ACSST5Y2021.S1902
 
 income <- read.csv("ACSST5Y2021.S1902-Data.csv", header=TRUE) 
 income <- income %>% select(
@@ -187,7 +501,13 @@ income.Z5 <- full_join(x=income1.Z5, y=full_join(x=income2.Z5, y=income3.Z5, by=
 
 #### Loading GE data, merging with income percentiles datasets ####
 ge <- read.csv("nprm-2022ppd-public-suppressed.csv", header=TRUE)
+ge <- ge %>% filter((`control_peps` %in% c("Foreign For-Profit", "Foreign Private"))==FALSE)
 ge$Count <- rep(1, nrow(ge))
+
+# Removing online programs
+ge <- left_join(x=ge, y=online.programs, by=c("opeid6", "cred_lvl", "cip4"))
+ge$`Distance status`[is.na(ge$`Distance status`)] <- 0
+ge <- ge %>% filter(`Distance status`==0)
 
 ge$`ZIP5` <- substr(ge$`zip`, 1, 5)
 ge$`ZIP4` <- substr(ge$`zip`, 1, 4)
@@ -197,7 +517,11 @@ ge <- left_join(x=ge, y=income.Z3, by="ZIP3")
 ge <- left_join(x=ge, y=income.Z4, by="ZIP4")
 ge <- left_join(x=ge, y=income.Z5, by="ZIP5")
 
-ge1 <- ge %>% filter(`inGE` == 1) %>% filter(`passfail_2019` != "No DTE/EP data")
+ge1 <- ge %>% filter(`inGE` == 1) 
+
+ge1$`fail_EP_2019` <- as.character(ge1$`fail_EP_2019`)
+ge1$`fail_EP_2019`[ge1$`passfail_2019` == "No DTE/EP data"] <- "No data"
+
 #### End #### 
 
 #### Calculating share of *failing* programs in bottom quartile by income ####
@@ -370,6 +694,7 @@ ge <- fread("nprm-2022ppd-public-suppressed.csv", header=TRUE, select=c(
   "opeid6", 
   "stabbr", 
   "zip",
+  "control_peps",
   "cip4", 
   "cipdesc", 
   "cip2", 
@@ -379,6 +704,7 @@ ge <- fread("nprm-2022ppd-public-suppressed.csv", header=TRUE, select=c(
   "mdearnp3",
   "count_AY1617"
 ))
+ge <- ge %>% filter((`control_peps` %in% c("Foreign For-Profit", "Foreign Private"))==FALSE)
 
 ge.level.category <- data.table("cred_lvl" = c(
   "UG Certificates", 
@@ -402,14 +728,9 @@ ge.level.category <- data.table("cred_lvl" = c(
 
 ge <- left_join(x=ge, y=ge.level.category, by="cred_lvl")
 ge$zip <- substr(ge$zip, 1, 5)
-ge$`count_AY1617`[is.na(ge$`count_AY1617`)] <- 0
 
 ge.fail <- ge %>% filter(`passfail_2019` %in% c("Fail both DTE and EP", "Fail DTE only", "Fail EP only")) %>% filter(inGE==1)
 ge.pass <- ge %>% filter(`passfail_2019` %in% c("Pass", "No DTE/EP data"))
-
-# For testing purposes only: 
-# set.seed(1111)
-# ge.fail <- ge.fail[sample(nrow(ge.fail), 50), ]
 
 #### End #### 
 
@@ -544,7 +865,7 @@ calc_dist <- function(gepassdata, gefaildata, levelSelection, cipSelection){
     program.category <- gefaildata$`Category`[i]
     program.2digCIP <- gefaildata$`cip2`[i]
     program.4digCIP <- gefaildata$`cip4`[i]
-    
+
     # Apply the proper level filter to gepassdata
     if(levelSelection=="Same credential level"){gealternatives <- gealternatives %>% filter(`cred_lvl` == program.level)}
     if(levelSelection=="Same credential category"){gealternatives <- gealternatives %>% filter(`Category` == program.category)}
@@ -552,7 +873,7 @@ calc_dist <- function(gepassdata, gefaildata, levelSelection, cipSelection){
     # Apply the proper CIP code filter to gepassdata
     if(cipSelection=="Same 4-digit CIP"){gealternatives <- gealternatives %>% filter(`cip4`==program.4digCIP)}
     if(cipSelection=="Same 2-digit CIP"){gealternatives <- gealternatives %>% filter(`cip2`==program.2digCIP)}  
-    
+
     # Only run the next lines if there is remaining passing programs: 
     if(nrow(gealternatives) > 0){
       
@@ -581,52 +902,39 @@ calc_dist <- function(gepassdata, gefaildata, levelSelection, cipSelection){
 #### End #### 
 
 #### Run distance function ####
+
 # Make calculations (this will take a long time to run)
 ge.fail.A <- calc_dist(ge.pass, ge.fail, "Same credential level", "Same 4-digit CIP")
 ge.fail.B <- calc_dist(ge.pass, ge.fail, "Same credential level", "Same 2-digit CIP")
-# ge.fail.C <- calc_dist(ge.pass, ge.fail, "Same credential level", "Any CIP")
 ge.fail.D <- calc_dist(ge.pass, ge.fail, "Same credential category", "Same 4-digit CIP")
-# ge.fail.E <- calc_dist(ge.pass, ge.fail, "Same credential category", "Same 2-digit CIP")
-# ge.fail.F <- calc_dist(ge.pass, ge.fail, "Same credential category", "Any CIP")
+
+# Add in the determinations on online programs 
+ge.fail.A <- left_join(x=ge.fail.A, y=online.programs, by=c("opeid6", "cip4", "cred_lvl"))
+ge.fail.B <- left_join(x=ge.fail.B, y=online.programs, by=c("opeid6", "cip4", "cred_lvl")) # Change these
+ge.fail.D <- left_join(x=ge.fail.D, y=online.programs, by=c("opeid6", "cip4", "cred_lvl")) # Change these
+ge.fail.A$`Distance to nearest alternative`[ge.fail.A$`Online alternative`=="Online with an online alternative"] <- 0
+ge.fail.B$`Distance to nearest alternative`[ge.fail.B$`Online alternative`=="Online with an online alternative"] <- 0
+ge.fail.D$`Distance to nearest alternative`[ge.fail.D$`Online alternative`=="Online with an online alternative"] <- 0
 
 # Count the number of students with no alternative within 30 miles 
 ge.fail.A$`Students with no nearby options` <- ifelse(ge.fail.A$`Distance to nearest alternative` > 30, ge.fail.A$`count_AY1617`, 0)
 ge.fail.B$`Students with no nearby options` <- ifelse(ge.fail.B$`Distance to nearest alternative` > 30, ge.fail.B$`count_AY1617`, 0)
-# ge.fail.C$`Students with no nearby options` <- ifelse(ge.fail.C$`Distance to nearest alternative` > 30, ge.fail.C$`count_AY1617`, 0)
 ge.fail.D$`Students with no nearby options` <- ifelse(ge.fail.D$`Distance to nearest alternative` > 30, ge.fail.D$`count_AY1617`, 0)
-# ge.fail.E$`Students with no nearby options` <- ifelse(ge.fail.E$`Distance to nearest alternative` > 30, ge.fail.E$`count_AY1617`, 0)
-# ge.fail.F$`Students with no nearby options` <- ifelse(ge.fail.F$`Distance to nearest alternative` > 30, ge.fail.F$`count_AY1617`, 0)
 
 # Set programs with no alternative within 30 miles to NA
 ge.fail.A$`Distance to nearest alternative`[ge.fail.A$`Distance to nearest alternative` > 30] <- NA
 ge.fail.B$`Distance to nearest alternative`[ge.fail.B$`Distance to nearest alternative` > 30] <- NA
-# ge.fail.C$`Distance to nearest alternative`[ge.fail.C$`Distance to nearest alternative` > 30] <- NA
 ge.fail.D$`Distance to nearest alternative`[ge.fail.D$`Distance to nearest alternative` > 30] <- NA
-# ge.fail.E$`Distance to nearest alternative`[ge.fail.E$`Distance to nearest alternative` > 30] <- NA
-# ge.fail.F$`Distance to nearest alternative`[ge.fail.F$`Distance to nearest alternative` > 30] <- NA
 
 # Average distance, excluding students with no option in 30 miles 
-ge.fail.A$`count_AY1617`[is.na(ge.fail.A$`count_AY1617`)] <- 0
-ge.fail.B$`count_AY1617`[is.na(ge.fail.B$`count_AY1617`)] <- 0
-# ge.fail.C$`count_AY1617`[is.na(ge.fail.C$`count_AY1617`)] <- 0
-ge.fail.D$`count_AY1617`[is.na(ge.fail.D$`count_AY1617`)] <- 0
-# ge.fail.E$`count_AY1617`[is.na(ge.fail.E$`count_AY1617`)] <- 0
-# ge.fail.F$`count_AY1617`[is.na(ge.fail.F$`count_AY1617`)] <- 0
-
 weighted.mean(ge.fail.A$`Distance to nearest alternative`, w = ge.fail.A$`count_AY1617`, na.rm=TRUE)
 weighted.mean(ge.fail.B$`Distance to nearest alternative`, w = ge.fail.B$`count_AY1617`, na.rm=TRUE)
-# weighted.mean(ge.fail.C$`Distance to nearest alternative`, w = ge.fail.C$`count_AY1617`, na.rm=TRUE)
 weighted.mean(ge.fail.D$`Distance to nearest alternative`, w = ge.fail.D$`count_AY1617`, na.rm=TRUE)
-# weighted.mean(ge.fail.E$`Distance to nearest alternative`, w = ge.fail.E$`count_AY1617`, na.rm=TRUE)
-# weighted.mean(ge.fail.F$`Distance to nearest alternative`, w = ge.fail.F$`count_AY1617`, na.rm=TRUE)
 
 # Share with no option within 30 miles 
 sum(ge.fail.A$`Students with no nearby options`, na.rm=TRUE) / sum(ge.fail.A$`count_AY1617`, na.rm=TRUE)
 sum(ge.fail.B$`Students with no nearby options`, na.rm=TRUE) / sum(ge.fail.B$`count_AY1617`, na.rm=TRUE)
-# sum(ge.fail.C$`Students with no nearby options`, na.rm=TRUE) / sum(ge.fail.C$`count_AY1617`, na.rm=TRUE)
 sum(ge.fail.D$`Students with no nearby options`, na.rm=TRUE) / sum(ge.fail.D$`count_AY1617`, na.rm=TRUE)
-# sum(ge.fail.E$`Students with no nearby options`, na.rm=TRUE) / sum(ge.fail.E$`count_AY1617`, na.rm=TRUE)
-# sum(ge.fail.F$`Students with no nearby options`, na.rm=TRUE) / sum(ge.fail.F$`count_AY1617`, na.rm=TRUE)
 
 #### End #### 
 
