@@ -143,24 +143,66 @@ online.programs <- online.programs %>% rename(`opeid6` = `OPEID6`,
                                               `cip4` = `CIP4`)
 #### End #### 
 
+#### Adding some variations on the variables ####
+online.programs$cip4 <- as.character(online.programs$cip4)
+online.programs$cip4 <- ifelse(nchar(online.programs$cip4)==1, paste("0", online.programs$cip4, sep=""), online.programs$cip4)
+online.programs$cip4 <- ifelse(nchar(online.programs$cip4)==2, paste("0", online.programs$cip4, sep=""), online.programs$cip4)
+online.programs$cip4 <- ifelse(nchar(online.programs$cip4)==3, paste("0", online.programs$cip4, sep=""), online.programs$cip4)
+online.programs$cip2 <- as.numeric(substr(online.programs$cip4, 1, 2))
+online.programs$cip4 <- as.numeric(online.programs$cip4)
+
+joiner3 <- data.frame("cred_lvl" = c(
+  "UG Certificates",
+  "Associate's",
+  "Bachelor's", 
+  "Post-BA Certs", 
+  "Grad Certs",
+  "Master's", 
+  "Doctoral",
+  "Professional"
+), "cred_cat"=c(
+  "Undergraduate", 
+  "Undergraduate", 
+  "Undergraduate", 
+  "Undergraduate", 
+  "Graduate", 
+  "Graduate", 
+  "Graduate", 
+  "Graduate"
+))
+online.programs <- left_join(x=online.programs, y=joiner3, by="cred_lvl")
+#### End #### 
+
 #### Determining when online programs have another online option ####
-online.programs$`Online alternative` <- rep(NA, nrow(online.programs)) 
+online.programs$`Online alternative A` <- rep(NA, nrow(online.programs)) 
+online.programs$`Online alternative B` <- rep(NA, nrow(online.programs)) 
+online.programs$`Online alternative D` <- rep(NA, nrow(online.programs)) 
 
 for(i in (1:nrow(online.programs))){
   
   if(online.programs$`Distance status`[i]==1){
     online.alternatives <- online.programs %>% filter(`Distance status`==1) %>% filter(`opeid6` != online.programs$`opeid6`[i])
-    online.alternatives <- online.alternatives %>% filter(`cip4` == online.programs$`cip4`[i])
-    online.alternatives <- online.alternatives %>% filter(`cred_lvl` == online.programs$`cred_lvl`[i])
     
-    if(nrow(online.alternatives) > 0){
-      online.programs$`Online alternative`[i] <- "Online with an online alternative"
-    }else{
-      online.programs$`Online alternative`[i] <- "Online without an online alternative"
-    }
-    rm("online.alternatives")
+    online.alternatives.A <- online.alternatives %>% filter(`cip4` == online.programs$`cip4`[i])
+    online.alternatives.B <- online.alternatives %>% filter(`cip2` == online.programs$`cip2`[i])
+    online.alternatives.D <- online.alternatives %>% filter(`cip4` == online.programs$`cip4`[i])
+    
+    online.alternatives.A <- online.alternatives.A %>% filter(`cred_lvl` == online.programs$`cred_lvl`[i])
+    online.alternatives.B <- online.alternatives.B %>% filter(`cred_lvl` == online.programs$`cred_lvl`[i])
+    online.alternatives.D <- online.alternatives.D %>% filter(`cred_cat` == online.programs$`cred_cat`[i])
+    
+    if(nrow(online.alternatives.A) > 0){online.programs$`Online alternative A`[i] <- "Online with an online alternative"
+    }else{online.programs$`Online alternative A`[i] <- "Online without an online alternative"}
+    if(nrow(online.alternatives.B) > 0){online.programs$`Online alternative B`[i] <- "Online with an online alternative"
+    }else{online.programs$`Online alternative B`[i] <- "Online without an online alternative"}
+    if(nrow(online.alternatives.D) > 0){online.programs$`Online alternative D`[i] <- "Online with an online alternative"
+    }else{online.programs$`Online alternative D`[i] <- "Online without an online alternative"}
+    
+    rm("online.alternatives.A", "online.alternatives.B", "online.alternatives.D")
   }
 }
+
+online.programs <- online.programs %>% select(-(`cred_cat`)) %>% select(-(`cip2`))
 
 #### End #### 
 
@@ -282,18 +324,6 @@ statesData <- statesData %>% mutate(`Percentage change in discretionary D/E rate
 statesData <- statesData %>% mutate(`Absolute change in average earnings` = `Average earnings in state (passing programs)` - `Average earnings in state (all programs)`)
 statesData <- statesData %>% mutate(`Absolute change in annual D/E rate` = `Aggregate annual D/E rate (passing programs)` - `Aggregate annual D/E rate (all programs)`)
 statesData <- statesData %>% mutate(`Absolute change in discretionary D/E rate` = `Aggregate discretionary D/E rate (passing programs)` - `Aggregate discretionary D/E rate (all programs)`)
-
-#### End #### 
-
-#### Make aesthetic changes (commented out for now) ####
-
-# statesData$`Absolute change in average earnings` <- dollar(statesData$`Absolute change in average earnings`, accuracy=10)
-# statesData$`Absolute change in annual D/E rate` <- round(statesData$`Absolute change in annual D/E rate`, digits=3)
-# statesData$`Absolute change in discretionary D/E rate` <- round(statesData$`Absolute change in discretionary D/E rate`, digits=3)
-# 
-# statesData$`Percentage change in average earnings` <- percent(statesData$`Percentage change in average earnings`, accuracy=0.01)
-# statesData$`Percentage change in annual D/E rate` <- percent(statesData$`Percentage change in annual D/E rate`, accuracy=0.01)
-# statesData$`Percentage change in discretionary D/E rate` <- percent(statesData$`Percentage change in discretionary D/E rate`, accuracy=0.01)
 
 #### End #### 
 
@@ -604,31 +634,35 @@ agg3.Z5
 
 #### End #### 
 
-#### Calculating share of cohort in *failing* programs in bottom quartile by income ####
+#### Removing programs that lack cohort size data ####
+ge2 <- ge1 %>% filter(is.na(`count_AY1617`)==FALSE)
+#### End #### 
 
-agg1.Z3 <- ge1 %>% mutate(`Quartile` = ifelse(`Within-state percentile of mean income of all households, ZIP3` < 0.25, "Bottom quartile", "Not bottom quartile"))
-agg1.Z4 <- ge1 %>% mutate(`Quartile` = ifelse(`Within-state percentile of mean income of all households, ZIP4` < 0.25, "Bottom quartile", "Not bottom quartile"))
-agg1.Z5 <- ge1 %>% mutate(`Quartile` = ifelse(`Within-state percentile of mean income of all households, ZIP5` < 0.25, "Bottom quartile", "Not bottom quartile"))
+#### Calculating average cohort size in *failing* programs in bottom quartile by income ####
 
-agg2.Z3 <- ge1 %>% mutate(`Quartile` = ifelse(`Within-state percentile of mean income of households with earnings, ZIP3` < 0.25, "Bottom quartile", "Not bottom quartile"))
-agg2.Z4 <- ge1 %>% mutate(`Quartile` = ifelse(`Within-state percentile of mean income of households with earnings, ZIP4` < 0.25, "Bottom quartile", "Not bottom quartile"))
-agg2.Z5 <- ge1 %>% mutate(`Quartile` = ifelse(`Within-state percentile of mean income of households with earnings, ZIP5` < 0.25, "Bottom quartile", "Not bottom quartile"))
+agg1.Z3 <- ge2 %>% mutate(`Quartile` = ifelse(`Within-state percentile of mean income of all households, ZIP3` < 0.25, "Bottom quartile", "Not bottom quartile"))
+agg1.Z4 <- ge2 %>% mutate(`Quartile` = ifelse(`Within-state percentile of mean income of all households, ZIP4` < 0.25, "Bottom quartile", "Not bottom quartile"))
+agg1.Z5 <- ge2 %>% mutate(`Quartile` = ifelse(`Within-state percentile of mean income of all households, ZIP5` < 0.25, "Bottom quartile", "Not bottom quartile"))
 
-agg3.Z3 <- ge1 %>% mutate(`Quartile` = ifelse(`Within-state percentile of mean income of households with wage or salary earnings, ZIP3` < 0.25, "Bottom quartile", "Not bottom quartile"))
-agg3.Z4 <- ge1 %>% mutate(`Quartile` = ifelse(`Within-state percentile of mean income of households with wage or salary earnings, ZIP4` < 0.25, "Bottom quartile", "Not bottom quartile"))
-agg3.Z5 <- ge1 %>% mutate(`Quartile` = ifelse(`Within-state percentile of mean income of households with wage or salary earnings, ZIP5` < 0.25, "Bottom quartile", "Not bottom quartile"))  
+agg2.Z3 <- ge2 %>% mutate(`Quartile` = ifelse(`Within-state percentile of mean income of households with earnings, ZIP3` < 0.25, "Bottom quartile", "Not bottom quartile"))
+agg2.Z4 <- ge2 %>% mutate(`Quartile` = ifelse(`Within-state percentile of mean income of households with earnings, ZIP4` < 0.25, "Bottom quartile", "Not bottom quartile"))
+agg2.Z5 <- ge2 %>% mutate(`Quartile` = ifelse(`Within-state percentile of mean income of households with earnings, ZIP5` < 0.25, "Bottom quartile", "Not bottom quartile"))
 
-agg1.Z3 <- aggregate(data=agg1.Z3, `count_AY1617` ~ `Quartile` + `fail_EP_2019`, FUN=sum) %>% pivot_wider(names_from=`Quartile`, values_from=`count_AY1617`) %>% mutate(`Share in bottom quartile` = `Bottom quartile` / (`Bottom quartile` + `Not bottom quartile`))
-agg1.Z4 <- aggregate(data=agg1.Z4, `count_AY1617` ~ `Quartile` + `fail_EP_2019`, FUN=sum) %>% pivot_wider(names_from=`Quartile`, values_from=`count_AY1617`) %>% mutate(`Share in bottom quartile` = `Bottom quartile` / (`Bottom quartile` + `Not bottom quartile`))
-agg1.Z5 <- aggregate(data=agg1.Z5, `count_AY1617` ~ `Quartile` + `fail_EP_2019`, FUN=sum) %>% pivot_wider(names_from=`Quartile`, values_from=`count_AY1617`) %>% mutate(`Share in bottom quartile` = `Bottom quartile` / (`Bottom quartile` + `Not bottom quartile`))
+agg3.Z3 <- ge2 %>% mutate(`Quartile` = ifelse(`Within-state percentile of mean income of households with wage or salary earnings, ZIP3` < 0.25, "Bottom quartile", "Not bottom quartile"))
+agg3.Z4 <- ge2 %>% mutate(`Quartile` = ifelse(`Within-state percentile of mean income of households with wage or salary earnings, ZIP4` < 0.25, "Bottom quartile", "Not bottom quartile"))
+agg3.Z5 <- ge2 %>% mutate(`Quartile` = ifelse(`Within-state percentile of mean income of households with wage or salary earnings, ZIP5` < 0.25, "Bottom quartile", "Not bottom quartile"))  
 
-agg2.Z3 <- aggregate(data=agg2.Z3, `count_AY1617` ~ `Quartile` + `fail_EP_2019`, FUN=sum) %>% pivot_wider(names_from=`Quartile`, values_from=`count_AY1617`) %>% mutate(`Share in bottom quartile` = `Bottom quartile` / (`Bottom quartile` + `Not bottom quartile`))
-agg2.Z4 <- aggregate(data=agg2.Z4, `count_AY1617` ~ `Quartile` + `fail_EP_2019`, FUN=sum) %>% pivot_wider(names_from=`Quartile`, values_from=`count_AY1617`) %>% mutate(`Share in bottom quartile` = `Bottom quartile` / (`Bottom quartile` + `Not bottom quartile`))
-agg2.Z5 <- aggregate(data=agg2.Z5, `count_AY1617` ~ `Quartile` + `fail_EP_2019`, FUN=sum) %>% pivot_wider(names_from=`Quartile`, values_from=`count_AY1617`) %>% mutate(`Share in bottom quartile` = `Bottom quartile` / (`Bottom quartile` + `Not bottom quartile`))
+agg1.Z3 <- aggregate(data=agg1.Z3, `count_AY1617` ~ `Quartile` + `fail_EP_2019`, FUN=mean) %>% pivot_wider(names_from=`Quartile`, values_from=`count_AY1617`) 
+agg1.Z4 <- aggregate(data=agg1.Z4, `count_AY1617` ~ `Quartile` + `fail_EP_2019`, FUN=mean) %>% pivot_wider(names_from=`Quartile`, values_from=`count_AY1617`) 
+agg1.Z5 <- aggregate(data=agg1.Z5, `count_AY1617` ~ `Quartile` + `fail_EP_2019`, FUN=mean) %>% pivot_wider(names_from=`Quartile`, values_from=`count_AY1617`) 
 
-agg3.Z3 <- aggregate(data=agg3.Z3, `count_AY1617` ~ `Quartile` + `fail_EP_2019`, FUN=sum) %>% pivot_wider(names_from=`Quartile`, values_from=`count_AY1617`) %>% mutate(`Share in bottom quartile` = `Bottom quartile` / (`Bottom quartile` + `Not bottom quartile`))
-agg3.Z4 <- aggregate(data=agg3.Z4, `count_AY1617` ~ `Quartile` + `fail_EP_2019`, FUN=sum) %>% pivot_wider(names_from=`Quartile`, values_from=`count_AY1617`) %>% mutate(`Share in bottom quartile` = `Bottom quartile` / (`Bottom quartile` + `Not bottom quartile`))
-agg3.Z5 <- aggregate(data=agg3.Z5, `count_AY1617` ~ `Quartile` + `fail_EP_2019`, FUN=sum) %>% pivot_wider(names_from=`Quartile`, values_from=`count_AY1617`) %>% mutate(`Share in bottom quartile` = `Bottom quartile` / (`Bottom quartile` + `Not bottom quartile`))
+agg2.Z3 <- aggregate(data=agg2.Z3, `count_AY1617` ~ `Quartile` + `fail_EP_2019`, FUN=mean) %>% pivot_wider(names_from=`Quartile`, values_from=`count_AY1617`) 
+agg2.Z4 <- aggregate(data=agg2.Z4, `count_AY1617` ~ `Quartile` + `fail_EP_2019`, FUN=mean) %>% pivot_wider(names_from=`Quartile`, values_from=`count_AY1617`)
+agg2.Z5 <- aggregate(data=agg2.Z5, `count_AY1617` ~ `Quartile` + `fail_EP_2019`, FUN=mean) %>% pivot_wider(names_from=`Quartile`, values_from=`count_AY1617`) 
+
+agg3.Z3 <- aggregate(data=agg3.Z3, `count_AY1617` ~ `Quartile` + `fail_EP_2019`, FUN=mean) %>% pivot_wider(names_from=`Quartile`, values_from=`count_AY1617`)
+agg3.Z4 <- aggregate(data=agg3.Z4, `count_AY1617` ~ `Quartile` + `fail_EP_2019`, FUN=mean) %>% pivot_wider(names_from=`Quartile`, values_from=`count_AY1617`) 
+agg3.Z5 <- aggregate(data=agg3.Z5, `count_AY1617` ~ `Quartile` + `fail_EP_2019`, FUN=mean) %>% pivot_wider(names_from=`Quartile`, values_from=`count_AY1617`)
 
 agg1.Z3
 agg1.Z4
@@ -646,29 +680,29 @@ agg3.Z5
 
 #### Calculating share of cohort in *all* programs in bottom quartile by income ####
 
-agg1.Z3 <- ge1 %>% mutate(`Quartile` = ifelse(`Within-state percentile of mean income of all households, ZIP3` < 0.25, "Bottom quartile", "Not bottom quartile"))
-agg1.Z4 <- ge1 %>% mutate(`Quartile` = ifelse(`Within-state percentile of mean income of all households, ZIP4` < 0.25, "Bottom quartile", "Not bottom quartile"))
-agg1.Z5 <- ge1 %>% mutate(`Quartile` = ifelse(`Within-state percentile of mean income of all households, ZIP5` < 0.25, "Bottom quartile", "Not bottom quartile"))
+agg1.Z3 <- ge2 %>% mutate(`Quartile` = ifelse(`Within-state percentile of mean income of all households, ZIP3` < 0.25, "Bottom quartile", "Not bottom quartile"))
+agg1.Z4 <- ge2 %>% mutate(`Quartile` = ifelse(`Within-state percentile of mean income of all households, ZIP4` < 0.25, "Bottom quartile", "Not bottom quartile"))
+agg1.Z5 <- ge2 %>% mutate(`Quartile` = ifelse(`Within-state percentile of mean income of all households, ZIP5` < 0.25, "Bottom quartile", "Not bottom quartile"))
 
-agg2.Z3 <- ge1 %>% mutate(`Quartile` = ifelse(`Within-state percentile of mean income of households with earnings, ZIP3` < 0.25, "Bottom quartile", "Not bottom quartile"))
-agg2.Z4 <- ge1 %>% mutate(`Quartile` = ifelse(`Within-state percentile of mean income of households with earnings, ZIP4` < 0.25, "Bottom quartile", "Not bottom quartile"))
-agg2.Z5 <- ge1 %>% mutate(`Quartile` = ifelse(`Within-state percentile of mean income of households with earnings, ZIP5` < 0.25, "Bottom quartile", "Not bottom quartile"))
+agg2.Z3 <- ge2 %>% mutate(`Quartile` = ifelse(`Within-state percentile of mean income of households with earnings, ZIP3` < 0.25, "Bottom quartile", "Not bottom quartile"))
+agg2.Z4 <- ge2 %>% mutate(`Quartile` = ifelse(`Within-state percentile of mean income of households with earnings, ZIP4` < 0.25, "Bottom quartile", "Not bottom quartile"))
+agg2.Z5 <- ge2 %>% mutate(`Quartile` = ifelse(`Within-state percentile of mean income of households with earnings, ZIP5` < 0.25, "Bottom quartile", "Not bottom quartile"))
 
-agg3.Z3 <- ge1 %>% mutate(`Quartile` = ifelse(`Within-state percentile of mean income of households with wage or salary earnings, ZIP3` < 0.25, "Bottom quartile", "Not bottom quartile"))
-agg3.Z4 <- ge1 %>% mutate(`Quartile` = ifelse(`Within-state percentile of mean income of households with wage or salary earnings, ZIP4` < 0.25, "Bottom quartile", "Not bottom quartile"))
-agg3.Z5 <- ge1 %>% mutate(`Quartile` = ifelse(`Within-state percentile of mean income of households with wage or salary earnings, ZIP5` < 0.25, "Bottom quartile", "Not bottom quartile"))  
+agg3.Z3 <- ge2 %>% mutate(`Quartile` = ifelse(`Within-state percentile of mean income of households with wage or salary earnings, ZIP3` < 0.25, "Bottom quartile", "Not bottom quartile"))
+agg3.Z4 <- ge2 %>% mutate(`Quartile` = ifelse(`Within-state percentile of mean income of households with wage or salary earnings, ZIP4` < 0.25, "Bottom quartile", "Not bottom quartile"))
+agg3.Z5 <- ge2 %>% mutate(`Quartile` = ifelse(`Within-state percentile of mean income of households with wage or salary earnings, ZIP5` < 0.25, "Bottom quartile", "Not bottom quartile"))  
 
-agg1.Z3 <- aggregate(data=agg1.Z3, `count_AY1617` ~ `Quartile`, FUN=sum) %>% pivot_wider(names_from=`Quartile`, values_from=`count_AY1617`) %>% mutate(`Share in bottom quartile` = `Bottom quartile` / (`Bottom quartile` + `Not bottom quartile`))
-agg1.Z4 <- aggregate(data=agg1.Z4, `count_AY1617` ~ `Quartile`, FUN=sum) %>% pivot_wider(names_from=`Quartile`, values_from=`count_AY1617`) %>% mutate(`Share in bottom quartile` = `Bottom quartile` / (`Bottom quartile` + `Not bottom quartile`))
-agg1.Z5 <- aggregate(data=agg1.Z5, `count_AY1617` ~ `Quartile`, FUN=sum) %>% pivot_wider(names_from=`Quartile`, values_from=`count_AY1617`) %>% mutate(`Share in bottom quartile` = `Bottom quartile` / (`Bottom quartile` + `Not bottom quartile`))
+agg1.Z3 <- aggregate(data=agg1.Z3, `count_AY1617` ~ `Quartile`, FUN=mean) %>% pivot_wider(names_from=`Quartile`, values_from=`count_AY1617`) 
+agg1.Z4 <- aggregate(data=agg1.Z4, `count_AY1617` ~ `Quartile`, FUN=mean) %>% pivot_wider(names_from=`Quartile`, values_from=`count_AY1617`) 
+agg1.Z5 <- aggregate(data=agg1.Z5, `count_AY1617` ~ `Quartile`, FUN=mean) %>% pivot_wider(names_from=`Quartile`, values_from=`count_AY1617`)
 
-agg2.Z3 <- aggregate(data=agg2.Z3, `count_AY1617` ~ `Quartile`, FUN=sum) %>% pivot_wider(names_from=`Quartile`, values_from=`count_AY1617`) %>% mutate(`Share in bottom quartile` = `Bottom quartile` / (`Bottom quartile` + `Not bottom quartile`))
-agg2.Z4 <- aggregate(data=agg2.Z4, `count_AY1617` ~ `Quartile`, FUN=sum) %>% pivot_wider(names_from=`Quartile`, values_from=`count_AY1617`) %>% mutate(`Share in bottom quartile` = `Bottom quartile` / (`Bottom quartile` + `Not bottom quartile`))
-agg2.Z5 <- aggregate(data=agg2.Z5, `count_AY1617` ~ `Quartile`, FUN=sum) %>% pivot_wider(names_from=`Quartile`, values_from=`count_AY1617`) %>% mutate(`Share in bottom quartile` = `Bottom quartile` / (`Bottom quartile` + `Not bottom quartile`))
+agg2.Z3 <- aggregate(data=agg2.Z3, `count_AY1617` ~ `Quartile`, FUN=mean) %>% pivot_wider(names_from=`Quartile`, values_from=`count_AY1617`)
+agg2.Z4 <- aggregate(data=agg2.Z4, `count_AY1617` ~ `Quartile`, FUN=mean) %>% pivot_wider(names_from=`Quartile`, values_from=`count_AY1617`) 
+agg2.Z5 <- aggregate(data=agg2.Z5, `count_AY1617` ~ `Quartile`, FUN=mean) %>% pivot_wider(names_from=`Quartile`, values_from=`count_AY1617`)
 
-agg3.Z3 <- aggregate(data=agg3.Z3, `count_AY1617` ~ `Quartile`, FUN=sum) %>% pivot_wider(names_from=`Quartile`, values_from=`count_AY1617`) %>% mutate(`Share in bottom quartile` = `Bottom quartile` / (`Bottom quartile` + `Not bottom quartile`))
-agg3.Z4 <- aggregate(data=agg3.Z4, `count_AY1617` ~ `Quartile`, FUN=sum) %>% pivot_wider(names_from=`Quartile`, values_from=`count_AY1617`) %>% mutate(`Share in bottom quartile` = `Bottom quartile` / (`Bottom quartile` + `Not bottom quartile`))
-agg3.Z5 <- aggregate(data=agg3.Z5, `count_AY1617` ~ `Quartile`, FUN=sum) %>% pivot_wider(names_from=`Quartile`, values_from=`count_AY1617`) %>% mutate(`Share in bottom quartile` = `Bottom quartile` / (`Bottom quartile` + `Not bottom quartile`))
+agg3.Z3 <- aggregate(data=agg3.Z3, `count_AY1617` ~ `Quartile`, FUN=mean) %>% pivot_wider(names_from=`Quartile`, values_from=`count_AY1617`)
+agg3.Z4 <- aggregate(data=agg3.Z4, `count_AY1617` ~ `Quartile`, FUN=mean) %>% pivot_wider(names_from=`Quartile`, values_from=`count_AY1617`)
+agg3.Z5 <- aggregate(data=agg3.Z5, `count_AY1617` ~ `Quartile`, FUN=mean) %>% pivot_wider(names_from=`Quartile`, values_from=`count_AY1617`)
 
 agg1.Z3
 agg1.Z4
@@ -910,11 +944,11 @@ ge.fail.D <- calc_dist(ge.pass, ge.fail, "Same credential category", "Same 4-dig
 
 # Add in the determinations on online programs 
 ge.fail.A <- left_join(x=ge.fail.A, y=online.programs, by=c("opeid6", "cip4", "cred_lvl"))
-ge.fail.B <- left_join(x=ge.fail.B, y=online.programs, by=c("opeid6", "cip4", "cred_lvl")) # Change these
-ge.fail.D <- left_join(x=ge.fail.D, y=online.programs, by=c("opeid6", "cip4", "cred_lvl")) # Change these
-ge.fail.A$`Distance to nearest alternative`[ge.fail.A$`Online alternative`=="Online with an online alternative"] <- 0
-ge.fail.B$`Distance to nearest alternative`[ge.fail.B$`Online alternative`=="Online with an online alternative"] <- 0
-ge.fail.D$`Distance to nearest alternative`[ge.fail.D$`Online alternative`=="Online with an online alternative"] <- 0
+ge.fail.B <- left_join(x=ge.fail.B, y=online.programs, by=c("opeid6", "cip4", "cred_lvl")) 
+ge.fail.D <- left_join(x=ge.fail.D, y=online.programs, by=c("opeid6", "cip4", "cred_lvl")) 
+ge.fail.A$`Distance to nearest alternative`[ge.fail.A$`Online alternative A`=="Online with an online alternative"] <- 0
+ge.fail.B$`Distance to nearest alternative`[ge.fail.B$`Online alternative B`=="Online with an online alternative"] <- 0
+ge.fail.D$`Distance to nearest alternative`[ge.fail.D$`Online alternative D`=="Online with an online alternative"] <- 0
 
 # Count the number of students with no alternative within 30 miles 
 ge.fail.A$`Students with no nearby options` <- ifelse(ge.fail.A$`Distance to nearest alternative` > 30, ge.fail.A$`count_AY1617`, 0)
