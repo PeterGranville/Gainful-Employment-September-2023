@@ -1217,3 +1217,132 @@ write.csv(ge.fail.A_record, "ge.fail.A_record.csv", row.names=FALSE)
 
 #### End #### 
 
+############## Proximity of Alternative Options, Full GE Data Only ###############
+
+#### Load in GE program data ####
+
+ge <- fread("nprm-2022ppd-public-suppressed.csv", header=TRUE, select=c(
+  "schname", 
+  "inGE", 
+  "opeid6", 
+  "stabbr", 
+  "zip",
+  "control_peps",
+  "cip4", 
+  "cipdesc", 
+  "cip2", 
+  "cip2_title_2010", 
+  "cred_lvl", 
+  "passfail_2019", 
+  "mdearnp3",
+  "debtservicenpp_md",
+  "count_AY1617"
+))
+ge <- ge %>% filter((`control_peps` %in% c("Foreign For-Profit", "Foreign Private"))==FALSE)
+
+ge.level.category <- data.table("cred_lvl" = c(
+  "UG Certificates", 
+  "Associate's", 
+  "Bachelor's",
+  "Post-BA Certs",
+  "Grad Certs", 
+  "Master's", 
+  "Professional",
+  "Doctoral"
+), "Category" = c(
+  "Undergraduate", 
+  "Undergraduate", 
+  "Undergraduate", 
+  "Undergraduate", 
+  "Graduate", 
+  "Graduate", 
+  "Graduate", 
+  "Graduate"
+))
+
+ge <- left_join(x=ge, y=ge.level.category, by="cred_lvl")
+ge$zip <- substr(ge$zip, 1, 5)
+
+ge.fail <- ge %>% filter(`passfail_2019` %in% c("Fail both DTE and EP", "Fail DTE only", "Fail EP only")) %>% filter(inGE==1)
+ge.pass <- ge %>% filter(`passfail_2019` %in% c("Pass", "No DTE/EP data")) %>% filter(is.na(`mdearnp3`)==FALSE) %>% filter(is.na(`debtservicenpp_md`)==FALSE)
+
+#### End #### 
+
+#### ZIP distance function: Record nearest program #### 
+
+calc_dist_and_record <- function(gepassdata, gefaildata, levelSelection, cipSelection){
+  
+  gefaildata$`Distance to nearest alternative` <- rep(NA, nrow(gefaildata))
+  gefaildata$`alt_schname` <- rep(NA, nrow(gefaildata))
+  gefaildata$`alt_cred_lvl` <- rep(NA, nrow(gefaildata))
+  gefaildata$`alt_cip4` <- rep(NA, nrow(gefaildata))
+  gefaildata$`alt_zip` <- rep(NA, nrow(gefaildata))
+  gefaildata$`alt_opeid6` <- rep(NA, nrow(gefaildata))
+  gefaildata$`alt_mdearnp3` <- rep(NA, nrow(gefaildata))
+  gefaildata$`alt_debtservicenpp_md` <- rep(NA, nrow(gefaildata))
+  
+  for(i in (1:nrow(gefaildata))){
+    
+    print(i)
+    
+    gealternatives <- gepassdata
+    gealternatives$`Distance` <- rep(NA, nrow(gealternatives))
+    program.level <- gefaildata$`cred_lvl`[i]
+    program.category <- gefaildata$`Category`[i]
+    program.2digCIP <- gefaildata$`cip2`[i]
+    program.4digCIP <- gefaildata$`cip4`[i]
+    
+    # Apply the proper level filter to gepassdata
+    if(levelSelection=="Same credential level"){gealternatives <- gealternatives %>% filter(`cred_lvl` == program.level)}
+    if(levelSelection=="Same credential category"){gealternatives <- gealternatives %>% filter(`Category` == program.category)}
+    
+    # Apply the proper CIP code filter to gepassdata
+    if(cipSelection=="Same 4-digit CIP"){gealternatives <- gealternatives %>% filter(`cip4`==program.4digCIP)}
+    if(cipSelection=="Same 2-digit CIP"){gealternatives <- gealternatives %>% filter(`cip2`==program.2digCIP)}  
+    
+    # Only run the next lines if there is remaining passing programs: 
+    if(nrow(gealternatives) > 0){
+      
+      # Calculate distance for every other program
+      for(j in (1:nrow(gealternatives))){
+        gealternatives$`Distance`[j] <- zip_distance(gefaildata$`zip`[i], gealternatives$`zip`[j], units="miles")$distance
+      }
+      
+      gealternatives <- gealternatives %>% filter(is.na(`Distance`)==FALSE)
+      gefaildata$`Distance to nearest alternative`[i] <- suppressWarnings(min(gealternatives$`Distance`, na.rm=TRUE))
+      gealternatives <- gealternatives %>% filter(is.infinite(`Distance`)==FALSE) 
+      gealternatives <- gealternatives %>% arrange(`Distance`, desc(`mdearnp3`))
+      
+      gefaildata$`alt_schname`[i] <- gealternatives$`schname`[1]
+      gefaildata$`alt_cred_lvl`[i] <- gealternatives$`cred_lvl`[1]
+      gefaildata$`alt_cip4`[i] <- gealternatives$`cip4`[1]
+      gefaildata$`alt_zip`[i] <- gealternatives$`zip`[1]
+      gefaildata$`alt_opeid6`[i] <- gealternatives$`opeid6`[1]
+      gefaildata$`alt_mdearnp3`[i] <- gealternatives$`mdearnp3`[1]
+      gefaildata$`alt_debtservicenpp_md`[i] <- gealternatives$`debtservicenpp_md`[1]
+      
+    }else{
+      gefaildata$`Distance to nearest alternative`[i] <- NA
+      gefaildata$`alt_schname`[i] <- NA
+      gefaildata$`alt_cred_lvl`[i] <- NA
+      gefaildata$`alt_cip4`[i] <- NA
+      gefaildata$`alt_zip`[i] <- NA
+      gefaildata$`alt_opeid6`[i] <- NA
+    }
+    
+    print(gefaildata$`Distance to nearest alternative`[i])
+    print(gefaildata$`alt_schname`[i])
+    
+    rm("gealternatives", 
+       "program.level", 
+       "program.category", 
+       "program.2digCIP", 
+       "program.4digCIP")
+  }
+  return(gefaildata)
+}
+
+ge.fail.fulldata_record <- calc_dist_and_record(ge.pass, ge.fail, "Same credential level", "Same 4-digit CIP")
+write.csv(ge.fail.fulldata_record, "ge.fail.fulldata_record.csv", row.names=FALSE)
+
+#### End #### 
