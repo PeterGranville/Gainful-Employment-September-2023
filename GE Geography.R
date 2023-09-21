@@ -351,6 +351,61 @@ ggplot(data=plot2, mapping=aes(y=reorder(`State`, `Aggregate discretionary D/E r
 
 #### End #### 
 
+############## Changes for Transfer Students ###############
+
+#### Load in GE data ####
+ge <- read.csv("nprm-2022ppd-public-suppressed.csv", header=TRUE)
+ge <- ge %>% filter((`control_peps` %in% c("Foreign For-Profit", "Foreign Private"))==FALSE)
+#### End #### 
+
+#### Define ge.fails and ge.passing ####
+ge.fails <- ge %>% filter(`passfail_2019` %in% c("Fail both DTE and EP", "Fail DTE only", "Fail EP only")) %>% filter(inGE==1)
+ge.passing <- ge %>% filter(`passfail_2019` %in% c("Pass", "No DTE/EP data")) 
+#### End #### 
+
+#### Merge in transfer data ####
+ge.fail.A_record <- read.csv("ge.fail.A_record.csv", header=TRUE)
+#### End #### 
+
+#### Remove programs where there was no alternative ####
+ge.fail.A_record <- ge.fail.A_record %>% filter(is.na(`alt_opeid6`)==FALSE)
+#### End #### 
+
+#### Create a unique identifier for each program ####
+ge.fail.A_record <- ge.fail.A_record %>% mutate(`Prog_ID` = paste(`alt_opeid6`, `alt_cip4`, `alt_cred_lvl`, sep="-"))
+#### End #### 
+
+#### Keep in only the essentials ####
+ge.transfers <- ge.fail.A_record %>% select(`Prog_ID`, `count_AY1617`)
+ge.transfers <- ge.transfers %>% rename(`TransferStudents` = `count_AY1617`)
+ge.transfers <- aggregate(data=ge.transfers, `TransferStudents` ~ `Prog_ID`, FUN=sum)
+#### End #### 
+
+#### Merge in transfers to ge.passing ####
+ge.passing <- ge.passing %>% mutate(`Prog_ID` = paste(`opeid6`, `cip4`, `cred_lvl`, sep="-"))
+ge.passing <- inner_join(x=ge.passing, y=ge.transfers, by="Prog_ID")
+#### End #### 
+
+#### Calculate earnings ####
+`Average earnings in state (failing)` <- weighted.mean(ge.fails$`mdearnp3`, w = ge.fails$`earn_count_ne_3yr`, na.rm=TRUE)
+`Average earnings in state (transfers)` <- weighted.mean(ge.passing$`mdearnp3`, w = ge.passing$`TransferStudents`, na.rm=TRUE)
+#### End #### 
+
+#### At this stage, we filter out programs without debt data ####
+ge.fails <- ge.fails %>% filter(is.na(`debtservicenpp_md`)==FALSE)
+ge.passing <- ge.passing %>% filter(is.na(`debtservicenpp_md`)==FALSE)
+#### End #### 
+
+#### Calculate debt ####
+`Average annual debt servicing in state (failing)` <- weighted.mean(ge.fails$`debtservicenpp_md`, w = ge.fails$`earn_count_ne_3yr`)
+`Average annual debt servicing in state (transfers)` <- weighted.mean(ge.passing$`debtservicenpp_md`, w = ge.passing$`TransferStudents`)
+#### End #### 
+
+#### Calculate discretionary earnings ratio ####
+`Aggregate discretionary D/E rate (failing)` <- `Average annual debt servicing in state (failing)` / (`Average earnings in state (failing)` - 18735)
+`Aggregate discretionary D/E rate (transfers)` <- `Average annual debt servicing in state (transfers)` / (`Average earnings in state (transfers)` - 18735)
+#### End #### 
+
 ############## GE Programs in Low-Wage Areas ###############
 
 #### Loading Census Bureau data on income by ZIP code #### 
