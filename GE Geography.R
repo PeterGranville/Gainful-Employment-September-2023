@@ -247,7 +247,7 @@ ge.transfers <- aggregate(data=ge.transfers, `TransferStudents` ~ `Prog_ID`, FUN
 #### End #### 
 
 #### Filter for programs with sufficient data for evaluation ####
-ge <- ge %>% filter(`passfail_2019` != "No DTE/EP data")
+ge <- ge %>% filter(`passfail_2019` != "No DTE/EP data") %>% filter(is.na(`count_AY1617`)==FALSE)
 #### End #### 
 
 #### Run function for states #### 
@@ -279,15 +279,15 @@ for(i in (1:length(states))){
   ge.passing$`TransferStudents`[is.na(ge.passing$`TransferStudents`)] <- 0
   ge.passing <- ge.passing %>% mutate(`count_AY1617` = `count_AY1617` + `TransferStudents`)
   
-  statesData$`Average earnings in state (all programs)`[i] <- weighted.mean(ge.all$`mdearnp3`, w = ge.all$`earn_count_ne_3yr`)
-  statesData$`Average earnings in state (passing programs)`[i] <- weighted.mean(ge.passing$`mdearnp3`, w = ge.passing$`earn_count_ne_3yr`)
+  statesData$`Average earnings in state (all programs)`[i] <- weighted.mean(ge.all$`mdearnp3`, w = ge.all$`count_AY1617`)
+  statesData$`Average earnings in state (passing programs)`[i] <- weighted.mean(ge.passing$`mdearnp3`, w = ge.passing$`count_AY1617`)
   
   # At this stage, we filter out programs without debt data. 
   ge.all <- ge.all %>% filter(is.na(`debtservicenpp_md`)==FALSE)
   ge.passing <- ge.passing %>% filter(is.na(`debtservicenpp_md`)==FALSE)
   
-  statesData$`Average annual debt servicing in state (all programs)`[i] <- weighted.mean(ge.all$`debtservicenpp_md`, w = ge.all$`earn_count_ne_3yr`)
-  statesData$`Average annual debt servicing in state (passing programs)`[i] <- weighted.mean(ge.passing$`debtservicenpp_md`, w = ge.passing$`earn_count_ne_3yr`)
+  statesData$`Average annual debt servicing in state (all programs)`[i] <- weighted.mean(ge.all$`debtservicenpp_md`, w = ge.all$`count_AY1617`)
+  statesData$`Average annual debt servicing in state (passing programs)`[i] <- weighted.mean(ge.passing$`debtservicenpp_md`, w = ge.passing$`count_AY1617`)
 }
 
 # Adding in the nationwide numbers
@@ -295,13 +295,14 @@ ge.all <- ge
 ge.passing <- ge.all %>% filter(`passfail_2019`=="Pass")
 ge.passing <- ge.passing %>% mutate(`Prog_ID` = paste(`opeid6`, `cip4`, `cred_lvl`, sep="-"))
 ge.passing <- left_join(x=ge.passing, y=ge.transfers, by="Prog_ID")
+ge.passing$`TransferStudents`[is.na(ge.passing$`TransferStudents`)] <- 0
 ge.passing <- ge.passing %>% mutate(`count_AY1617` = `count_AY1617` + `TransferStudents`)
 statesData <- statesData %>% add_row(
   `State` = "U.S. Overall", 
-  `Average earnings in state (all programs)` = weighted.mean(ge.all$`mdearnp3`, w = ge.all$`earn_count_ne_3yr`, na.rm=TRUE),
-  `Average earnings in state (passing programs)` = weighted.mean(ge.passing$`mdearnp3`, w = ge.passing$`earn_count_ne_3yr`, na.rm=TRUE), 
-  `Average annual debt servicing in state (all programs)` = weighted.mean(ge.all$`debtservicenpp_md`, w = ge.all$`earn_count_ne_3yr`, na.rm=TRUE), 
-  `Average annual debt servicing in state (passing programs)` = weighted.mean(ge.passing$`debtservicenpp_md`, w = ge.passing$`earn_count_ne_3yr`, na.rm=TRUE)
+  `Average earnings in state (all programs)` = weighted.mean(ge.all$`mdearnp3`, w = ge.all$`count_AY1617`, na.rm=TRUE),
+  `Average earnings in state (passing programs)` = weighted.mean(ge.passing$`mdearnp3`, w = ge.passing$`count_AY1617`, na.rm=TRUE), 
+  `Average annual debt servicing in state (all programs)` = weighted.mean(ge.all$`debtservicenpp_md`, w = ge.all$`count_AY1617`, na.rm=TRUE), 
+  `Average annual debt servicing in state (passing programs)` = weighted.mean(ge.passing$`debtservicenpp_md`, w = ge.passing$`count_AY1617`, na.rm=TRUE)
 )
 
 # Calculating annual D/E rate 
@@ -313,23 +314,11 @@ statesData <- statesData %>% mutate(`Aggregate discretionary D/E rate (passing p
 
 #### End #### 
 
-#### Make change calculations #### 
-
-# Percentage changes
-statesData <- statesData %>% mutate(`Percentage change in average earnings` = (`Average earnings in state (passing programs)` - `Average earnings in state (all programs)`) / `Average earnings in state (all programs)`)
-statesData <- statesData %>% mutate(`Percentage change in annual D/E rate` = (`Aggregate annual D/E rate (passing programs)` - `Aggregate annual D/E rate (all programs)`) / `Aggregate annual D/E rate (all programs)`)
-statesData <- statesData %>% mutate(`Percentage change in discretionary D/E rate` = (`Aggregate discretionary D/E rate (passing programs)` - `Aggregate discretionary D/E rate (all programs)`) / `Aggregate discretionary D/E rate (all programs)`)
-
-# Absolute changes 
-statesData <- statesData %>% mutate(`Absolute change in average earnings` = `Average earnings in state (passing programs)` - `Average earnings in state (all programs)`)
-statesData <- statesData %>% mutate(`Absolute change in annual D/E rate` = `Aggregate annual D/E rate (passing programs)` - `Aggregate annual D/E rate (all programs)`)
-statesData <- statesData %>% mutate(`Absolute change in discretionary D/E rate` = `Aggregate discretionary D/E rate (passing programs)` - `Aggregate discretionary D/E rate (all programs)`)
-
-#### End #### 
-
 #### Earnings gain chart ####
 
 plot1 <- statesData %>% select(`State`, `Average earnings in state (all programs)`, `Average earnings in state (passing programs)`)
+
+plot1 <- plot1 %>% filter(`State` != "District of Columbia")
 
 plot1 <- plot1 %>% pivot_longer(cols=c(`Average earnings in state (all programs)`, `Average earnings in state (passing programs)`), names_to="Program category", values_to="Average earnings in state")
 plot1$`Program category`[plot1$`Program category`=="Average earnings in state (all programs)"] <- "Pre-GE status quo"
@@ -341,69 +330,29 @@ ggplot(data=plot1, mapping=aes(y=reorder(`State`, `Average earnings in state`, m
 
 #### D/E Annual Ratio Chart ####
 
-plot2 <- statesData %>% select(`State`, `Aggregate discretionary D/E rate (all programs)`, `Aggregate discretionary D/E rate (passing programs)`)
+# Option 1: Discretionary D/E rate 
+# plot2 <- statesData %>% select(`State`, `Aggregate discretionary D/E rate (all programs)`, `Aggregate discretionary D/E rate (passing programs)`)
+# plot2 <- plot2 %>% pivot_longer(cols=c(`Aggregate discretionary D/E rate (all programs)`, `Aggregate discretionary D/E rate (passing programs)`), names_to="Program category", values_to="Aggregate discretionary D/E rate")
+# plot2$`Program category`[plot2$`Program category`=="Aggregate discretionary D/E rate (all programs)"] <- "Pre-GE status quo"
+# plot2$`Program category`[plot2$`Program category`=="Aggregate discretionary D/E rate (passing programs)"] <- "Post-GE simulation"
+# ggplot(data=plot2, mapping=aes(y=reorder(`State`, `Aggregate discretionary D/E rate`, min), x=`Aggregate discretionary D/E rate`, color=`Program category`, group=`State`)) + geom_point(aes(size=`Program category`)) + geom_line() + scale_x_continuous(labels=scales::percent_format(accuracy=1)) + labs(y="State", x="Discretionary D/E rate among program graduates") + scale_color_manual(values=c("dodgerblue", "gray23"), name="") + scale_size_manual(values=c(2.5, 1), name="")
 
-plot2 <- plot2 %>% pivot_longer(cols=c(`Aggregate discretionary D/E rate (all programs)`, `Aggregate discretionary D/E rate (passing programs)`), names_to="Program category", values_to="Aggregate discretionary D/E rate")
-plot2$`Program category`[plot2$`Program category`=="Aggregate discretionary D/E rate (all programs)"] <- "Pre-GE status quo"
-plot2$`Program category`[plot2$`Program category`=="Aggregate discretionary D/E rate (passing programs)"] <- "Post-GE simulation"
+# Option 2: Annual D/E rate
+plot2 <- statesData %>% select(`State`, `Aggregate annual D/E rate (all programs)`, `Aggregate annual D/E rate (passing programs)`)
 
-ggplot(data=plot2, mapping=aes(y=reorder(`State`, `Aggregate discretionary D/E rate`, min), x=`Aggregate discretionary D/E rate`, color=`Program category`, group=`State`)) + geom_point(aes(size=`Program category`)) + geom_line() + scale_x_continuous(labels=scales::percent_format(accuracy=1)) + labs(y="State", x="Discretionary D/E rate among program graduates") + scale_color_manual(values=c("dodgerblue", "gray23"), name="") + scale_size_manual(values=c(2.5, 1), name="")
+plot2 <- plot2 %>% pivot_longer(cols=c(`Aggregate annual D/E rate (all programs)`, `Aggregate annual D/E rate (passing programs)`), names_to="Program category", values_to="Aggregate annual D/E rate")
+plot2$`Program category`[plot2$`Program category`=="Aggregate annual D/E rate (all programs)"] <- "Pre-GE status quo"
+plot2$`Program category`[plot2$`Program category`=="Aggregate annual D/E rate (passing programs)"] <- "Post-GE simulation"
+ggplot(data=plot2, mapping=aes(y=reorder(`State`, `Aggregate annual D/E rate`, min), x=`Aggregate annual D/E rate`, color=`Program category`, group=`State`)) + geom_point(aes(size=`Program category`)) + geom_line() + scale_x_continuous(labels=scales::percent_format(accuracy=1)) + labs(y="State", x="Annual D/E rate among program graduates") + scale_color_manual(values=c("dodgerblue", "gray23"), name="") + scale_size_manual(values=c(2.5, 1), name="")
 
-#### End #### 
+# Option 3: Dollar amounts of debt payment
+# plot2 <- statesData %>% select(`State`, `Average annual debt servicing in state (all programs)`, `Average annual debt servicing in state (passing programs)`) %>% filter(State != "District of Columbia")
+# plot2 <- plot2 %>% pivot_longer(cols=c(`Average annual debt servicing in state (all programs)`, `Average annual debt servicing in state (passing programs)`), names_to="Program category", values_to="Average annual debt servicing in state")
+# plot2$`Program category`[plot2$`Program category`=="Average annual debt servicing in state (all programs)"] <- "Pre-GE status quo"
+# plot2$`Program category`[plot2$`Program category`=="Average annual debt servicing in state (passing programs)"] <- "Post-GE simulation"
+# ggplot(data=plot2, mapping=aes(y=reorder(`State`, `Average annual debt servicing in state`, min), x=`Average annual debt servicing in state`, color=`Program category`, group=`State`)) + geom_point(aes(size=`Program category`)) + geom_line() + scale_x_continuous(labels=scales::dollar_format(accuracy=1)) + labs(y="State", x="Annual loan among program graduates") + scale_color_manual(values=c("dodgerblue", "gray23"), name="") + scale_size_manual(values=c(2.5, 1), name="") 
 
-############## Changes for Transfer Students ###############
 
-#### Load in GE data ####
-ge <- read.csv("nprm-2022ppd-public-suppressed.csv", header=TRUE)
-ge <- ge %>% filter((`control_peps` %in% c("Foreign For-Profit", "Foreign Private"))==FALSE)
-#### End #### 
-
-#### Define ge.fails and ge.passing ####
-ge.fails <- ge %>% filter(`passfail_2019` %in% c("Fail both DTE and EP", "Fail DTE only", "Fail EP only")) %>% filter(inGE==1)
-ge.passing <- ge %>% filter(`passfail_2019` %in% c("Pass", "No DTE/EP data")) 
-#### End #### 
-
-#### Merge in transfer data ####
-ge.fail.A_record <- read.csv("ge.fail.A_record.csv", header=TRUE)
-#### End #### 
-
-#### Remove programs where there was no alternative ####
-ge.fail.A_record <- ge.fail.A_record %>% filter(is.na(`alt_opeid6`)==FALSE)
-#### End #### 
-
-#### Create a unique identifier for each program ####
-ge.fail.A_record <- ge.fail.A_record %>% mutate(`Prog_ID` = paste(`alt_opeid6`, `alt_cip4`, `alt_cred_lvl`, sep="-"))
-#### End #### 
-
-#### Keep in only the essentials ####
-ge.transfers <- ge.fail.A_record %>% select(`Prog_ID`, `count_AY1617`)
-ge.transfers <- ge.transfers %>% rename(`TransferStudents` = `count_AY1617`)
-ge.transfers <- aggregate(data=ge.transfers, `TransferStudents` ~ `Prog_ID`, FUN=sum)
-#### End #### 
-
-#### Merge in transfers to ge.passing ####
-ge.passing <- ge.passing %>% mutate(`Prog_ID` = paste(`opeid6`, `cip4`, `cred_lvl`, sep="-"))
-ge.passing <- inner_join(x=ge.passing, y=ge.transfers, by="Prog_ID")
-#### End #### 
-
-#### Calculate earnings ####
-`Average earnings in state (failing)` <- weighted.mean(ge.fails$`mdearnp3`, w = ge.fails$`earn_count_ne_3yr`, na.rm=TRUE)
-`Average earnings in state (transfers)` <- weighted.mean(ge.passing$`mdearnp3`, w = ge.passing$`TransferStudents`, na.rm=TRUE)
-#### End #### 
-
-#### At this stage, we filter out programs without debt data ####
-ge.fails <- ge.fails %>% filter(is.na(`debtservicenpp_md`)==FALSE)
-ge.passing <- ge.passing %>% filter(is.na(`debtservicenpp_md`)==FALSE)
-#### End #### 
-
-#### Calculate debt ####
-`Average annual debt servicing in state (failing)` <- weighted.mean(ge.fails$`debtservicenpp_md`, w = ge.fails$`earn_count_ne_3yr`)
-`Average annual debt servicing in state (transfers)` <- weighted.mean(ge.passing$`debtservicenpp_md`, w = ge.passing$`TransferStudents`)
-#### End #### 
-
-#### Calculate discretionary earnings ratio ####
-`Aggregate discretionary D/E rate (failing)` <- `Average annual debt servicing in state (failing)` / (`Average earnings in state (failing)` - 18735)
-`Aggregate discretionary D/E rate (transfers)` <- `Average annual debt servicing in state (transfers)` / (`Average earnings in state (transfers)` - 18735)
 #### End #### 
 
 ############## GE Programs in Low-Wage Areas ###############
@@ -1344,5 +1293,27 @@ calc_dist_and_record <- function(gepassdata, gefaildata, levelSelection, cipSele
 
 ge.fail.fulldata_record <- calc_dist_and_record(ge.pass, ge.fail, "Same credential level", "Same 4-digit CIP")
 write.csv(ge.fail.fulldata_record, "ge.fail.fulldata_record.csv", row.names=FALSE)
+
+#### End #### 
+
+#### Running weighted means ####
+
+ge.fail.fulldata_record <- read.csv("ge.fail.fulldata_record.csv", header=TRUE)
+
+ge.fail.fulldata_record_earnings <- ge.fail.fulldata_record %>% filter(is.na(`alt_mdearnp3`)==FALSE) %>% filter(is.na(`mdearnp3`)==FALSE) %>% filter(is.na(`count_AY1617`)==FALSE)
+
+`Average earnings in state (pre-transfer)` <- weighted.mean(ge.fail.fulldata_record_earnings$`mdearnp3`, w = ge.fail.fulldata_record_earnings$`count_AY1617`, na.rm=TRUE)
+`Average earnings in state (post-transfer)` <- weighted.mean(ge.fail.fulldata_record_earnings$`alt_mdearnp3`, w = ge.fail.fulldata_record_earnings$`count_AY1617`, na.rm=TRUE)
+
+ge.fail.fulldata_record_debt <- ge.fail.fulldata_record %>% filter(is.na(`alt_debtservicenpp_md`)==FALSE) %>% filter(is.na(`debtservicenpp_md`)==FALSE) %>% filter(is.na(`count_AY1617`)==FALSE)
+
+`Average annual debt servicing in state (pre-transfer)` <- weighted.mean(ge.fail.fulldata_record_debt$`debtservicenpp_md`, w = ge.fail.fulldata_record_debt$`count_AY1617`, na.rm=TRUE)
+`Average annual debt servicing in state (post-transfer)` <- weighted.mean(ge.fail.fulldata_record_debt$`alt_debtservicenpp_md`, w = ge.fail.fulldata_record_debt$`count_AY1617`, na.rm=TRUE)
+
+`Aggregate discretionary D/E rate (pre-transfer)` <- `Average annual debt servicing in state (pre-transfer)` / (`Average earnings in state (pre-transfer)` - 18735)
+`Aggregate discretionary D/E rate (post-transfer)` <- `Average annual debt servicing in state (post-transfer)` / (`Average earnings in state (post-transfer)` - 18735)
+
+`Aggregate annual D/E rate (pre-transfer)` <- `Average annual debt servicing in state (pre-transfer)` / `Average earnings in state (pre-transfer)`
+`Aggregate annual D/E rate (post-transfer)` <- `Average annual debt servicing in state (post-transfer)` / `Average earnings in state (post-transfer)`
 
 #### End #### 

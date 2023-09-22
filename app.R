@@ -9,14 +9,15 @@ library(stringr)
 library(ggplot2)
 library(reshape2)
 library(data.table)
+library(shinythemes)
 #### End #### 
 
-ui <- fluidPage(
+ui <- fluidPage(theme = shinytheme("sandstone"),
   
   titlePanel("Gainful Employment Explorer Tool"),
   
   #### Preamble ####
-  paste("The Gainful Employment (GE) rule is a regulation that will apply to career programs, which includes programs at for-profit colleges and non-degree programs at public and nonprofit institutions. It was first issued by the Department of Education in 2014 and then rescinded in 2019. The final rule is expected to be released in the coming weeks. This tool shows expected outcomes of the GE rule, using the proposed regulation and the accompanying data file released by the Department on May 17, 2023."), 
+  paste("The Gainful Employment (GE) rule is a regulation that will apply to career programs, which includes programs at for-profit colleges and non-degree programs at public and nonprofit institutions. It was first issued by the Department of Education in 2014 and then rescinded in 2019. The final rule is expected to be released in the coming weeks. This tool shows expected outcomes of the GE rule, using the proposed rule and the accompanying data file released by the Department on May 17, 2023."), 
   br(),
   br(),
   paste("On the left, you can filter for a specific state, institutional control, field of study, credential level, and/or minority-serving institution (MSI) status. Hit 'Enter my selections' to update the results on the right."), 
@@ -369,7 +370,7 @@ ui <- fluidPage(
                   label = "Select a table here:",
                   choices=c(
                     "Pass/fail outcomes",
-                    "Simulating changes to debt and earnings", 
+                    # "Simulating changes to debt and earnings", 
                     "Table of programs", 
                     "Table of colleges"
                   ), 
@@ -401,6 +402,7 @@ ui <- fluidPage(
                  #### End ####
                  
                  #### O4: Print plotNotes ####
+                 br(), 
                  textOutput("plotNotes")
                  #### End #### 
                  
@@ -416,6 +418,7 @@ ui <- fluidPage(
                     #### End ####
                     
                     #### O7: Print tableNotes ####
+                    br(), 
                     textOutput("tableNotes")
                     #### End #### 
         )
@@ -425,7 +428,9 @@ ui <- fluidPage(
   
   #### Questions #### 
   br(),
-  paste("Questions? Email granville@tcf.org.") 
+  paste("All data in this tool comes directly from the Department of Education's release of GE data from May 2023, except the map of colleges, which uses data on geographic coordinates and enrollment that come from the Integrated Postsecondary Education Data System. Indicators of minority-serving institution (MSI) status come from the College Scorecard. For any questions or inquiries, please email Peter Granville (granville@tcf.org) and Amber Villalobos (villalobos@tcf.org)."),
+  br(),
+  br()
   #### End #### 
   
 )
@@ -657,7 +662,7 @@ server <- function(input, output) {
     #### End #### 
     
     #### S9A: Tell gei whether each college has a failing program using opeid6 ####
-    gep <- gep %>% mutate(`Has any failing program` = ifelse(`passfail_2019` %in% c("Fail both DTE and EP", "Fail DTE only", "Fail EP only"), 1, 0))
+    gep <- gep %>% mutate(`Has any failing program` = ifelse(`passfail_2019` %in% c("Fail both D/E and EP", "Fail D/E only", "Fail EP only"), 1, 0))
     gep.anyfail <- gep %>% filter(`Has any failing program` == 1) 
     failing.opeids <- unique(gep.anyfail$opeid6)
     gei$`Has any failing program` <- ifelse(gei$`opeid6` %in% failing.opeids, "Yes", "No")
@@ -666,14 +671,14 @@ server <- function(input, output) {
     
     #### S9B: Create variables pfDTE and pfEP in gep ####
     gep$`pfDTE` <- rep(NA, nrow(gep))
-    gep$`pfDTE`[gep$`fail_DTE_2019`==1] <- "Fail DTE"
-    gep$`pfDTE`[gep$`fail_DTE_2019`==0] <- "Pass DTE"
+    gep$`pfDTE`[gep$`fail_DTE_2019`==1] <- "Fail D/E"
+    gep$`pfDTE`[gep$`fail_DTE_2019`==0] <- "Pass D/E"
     
     gep$`pfEP` <- rep(NA, nrow(gep))
     gep$`pfEP`[gep$`fail_EP_2019`==1] <- "Fail EP"
     gep$`pfEP`[gep$`fail_EP_2019`==0] <- "Pass EP"
     
-    gep$`pfDTE`[gep$`passfail_2019`=="No DTE/EP data"] <- "Insufficient data for DTE"
+    gep$`pfDTE`[gep$`passfail_2019`=="No DTE/EP data"] <- "Insufficient data for D/E"
     gep$`pfEP`[gep$`passfail_2019`=="No DTE/EP data"] <- "Insufficient data for EP"
     #### End ####
     
@@ -721,9 +726,7 @@ server <- function(input, output) {
         paste(
           "A total of ",
           comma(all.programs), 
-          " programs across ", 
-          comma(nrow(gei)),
-          " colleges match your selections. Of these, ", 
+          " programs match your selections. Of these, ", 
           comma(nrow(gep)),
           " programs are subject to the GE rules.",
           sep=""
@@ -737,7 +740,7 @@ server <- function(input, output) {
     if(input$plotSelection=="Map of colleges by GE status"){
       
       output$plotTitle <- renderText({ paste("<h4 style=", "font-size: 8px;", ">Map of colleges</h4>") })
-      output$plotNotes <- renderText(paste(""))
+      output$plotNotes <- renderText(paste("All colleges in the U.S. that participate in Title IV financial aid programs under the Higher Education Act are shown. In its public GE data, the Department of Education categorizes multi-campus colleges using the state of a randomly chosen campus, whereas this map uses the latitude and longitude of each college's main campus according to the College Scorecard. This can result in a college appearing to be located in a state outside your state selection."))
       
       gei <- gei %>% mutate(`Share of all programs that are GE` = `inGE` / `count`)
       geo <- gei %>% select(`schname`, 
@@ -796,7 +799,7 @@ server <- function(input, output) {
     if(input$plotSelection=="Debt-to-earnings chart"){
       
       output$plotTitle <- renderText({ paste("<h4 style=", "font-size: 8px;", ">Plot of programs by debt-to-earnings test</h4>") })
-      output$plotNotes <- renderText(paste(""))
+      output$plotNotes <- renderText(paste("The graph above applies to programs that are subject to the GE rule only. A program passes the Debt to Earnings (D/E) test if the typical annual required student loan payment among program completers is lower than certain benchmarks. In the graph above, the median annual loan payment among program completers who borrowed student loans is plotted against the median annual earnings three years after program completion. The blue line represents the annual earnings threshold, a measure of whether programs' annual loan payment is less than 8 percent of annual earnings. The orange line represents the discretionary earnings threshold, a measure of whether programs' annual loan payment is less than 20 percent of annual earnings after subtracting a fixed amount for living expenses: 150 percent of the single-member household poverty line, currently $18,735."))
       
       dte <- gep %>% select(
         "schname",                      # Institution name
@@ -804,11 +807,11 @@ server <- function(input, output) {
         "state",                        # State
         "cipdesc",                      # CIP description
         "LevelName",                    # Credential description
-        "pfDTE",                        # Pass/fail DTE
+        "pfDTE",                        # Pass/fail D/E
         "inexpfte",                     # Instructional spending per FTE 
         "mdearnp3",                     # Median earnings
         "debtservicenpp_md"             # Annual loan payment
-      ) %>% filter(`mdearnp3` != 0) %>% filter(debtservicenpp_md != 0) %>% filter(`pfDTE` != "Insufficient data for DTE")
+      ) %>% filter(`mdearnp3` != 0) %>% filter(debtservicenpp_md != 0) %>% filter(`pfDTE` != "Insufficient data for D/E")
       
       if(nrow(gep)==0){
         output$plotPlot <- renderPlotly({
@@ -843,13 +846,13 @@ server <- function(input, output) {
           dteChart <- dteChart + labs(y="Median annual earnings 3 years after program completion", x="Annual loan payment", caption="Programs located below both the blue line and the orange line fail the debt-to-earnings test")
           dteChart <- dteChart + theme(text=element_text(family="Optima")) 
           dteChart <- dteChart + scale_x_continuous(labels=dollar_format()) + scale_y_continuous(labels=dollar_format())
-          if((sum(dte$`Pass/Fail`=="Pass DTE") != 0) & (sum(dte$`Pass/Fail`=="Fail DTE") != 0)){
+          if((sum(dte$`Pass/Fail`=="Pass D/E") != 0) & (sum(dte$`Pass/Fail`=="Fail D/E") != 0)){
             dteChart <- dteChart + scale_shape_manual(values = c(4, 1)) 
           }else{
-            if(sum(dte$`Pass/Fail`=="Pass DTE")==0){
+            if(sum(dte$`Pass/Fail`=="Pass D/E")==0){
               dteChart <- dteChart + scale_shape_manual(values = c(4)) 
             }
-            if(sum(dte$`Pass/Fail`=="Fail DTE")==0){
+            if(sum(dte$`Pass/Fail`=="Fail D/E")==0){
               dteChart <- dteChart + scale_shape_manual(values = c(1)) 
             }
           }
@@ -865,7 +868,7 @@ server <- function(input, output) {
     if(input$plotSelection=="Earnings premium chart"){
       
       output$plotTitle <- renderText({ paste("<h4 style=", "font-size: 8px;", ">Plot of programs by earnings premium test</h4>") })
-      output$plotNotes <- renderText(paste(""))
+      output$plotNotes <- renderText(paste("The graph above applies to programs that are subject to the GE rule only. A program passes the Earnings Premium (EP) test if the program's completers earn at least as much as workers who have no postsecondary experience. In the graph above, the median earnings of program completers three years after program completion are plotted against the earnings of the average working high school graduate (aged 25 to 34) in the state where the program is located. If the typical program completer does not earn an amount above the red line, the program fails the test. Programs with annual earnings above $150,000 are not shown."))
       
       ep <- gep %>% select(
         "schname",                      # Institution name
@@ -932,7 +935,7 @@ server <- function(input, output) {
     if(input$tableSelection=="Pass/fail outcomes"){
       
       output$tableTitle <- renderText({ paste("<h4 style=", "font-size: 8px;", ">Table of programs by pass/fail outcomes</h4>") })
-      output$tableNotes <- renderText(paste(""))
+      output$tableNotes <- renderText(paste("The table above only includes programs that are subject to the GE rule."))
       
       gep.matrix <- gep %>% filter(is.na(`Count`)==FALSE) %>% filter(is.na(`passfail_2019`)==FALSE)
       gep.matrix <- aggregate(data=gep.matrix, `Count` ~ `passfail_2019`, FUN=sum)
@@ -1025,7 +1028,7 @@ server <- function(input, output) {
     if(input$tableSelection=="Table of programs"){
       
       output$tableTitle <- renderText({ paste("<h4 style=", "font-size: 8px;", ">Table of programs</h4>") })
-      output$tableNotes <- renderText(paste(""))
+      output$tableNotes <- renderText(paste("Use the search bar to find a specific program. Only programs that are subject to the Gainful Employment rule are included."))
       
       programsTable <- gep %>% filter(inGE==1) %>% select(`schname`, `state`, `cipdesc`, `LevelName`, `pfDTE`, `pfEP`)
       
